@@ -2,8 +2,9 @@ import type { Briefing } from "@/utils/briefing.functions";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink, Sparkles } from "lucide-react";
+import { Download, ExternalLink, Sparkles, FileText, FileDown } from "lucide-react";
 import { briefingToMarkdown } from "@/lib/briefing-markdown";
+import jsPDF from "jspdf";
 
 const sentimentStyles: Record<string, string> = {
   positive: "bg-[oklch(0.65_0.15_155)]/15 text-[oklch(0.45_0.15_155)] border-[oklch(0.65_0.15_155)]/30",
@@ -14,6 +15,7 @@ const sentimentStyles: Record<string, string> = {
 
 export function BriefingDisplay({ briefing }: { briefing: Briefing }) {
   const date = new Date(briefing.generatedAt).toLocaleString();
+  const dateStamp = new Date(briefing.generatedAt).toISOString().split("T")[0];
 
   function downloadMarkdown() {
     const md = briefingToMarkdown(briefing);
@@ -21,9 +23,85 @@ export function BriefingDisplay({ briefing }: { briefing: Briefing }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `deskflow-briefing-${new Date().toISOString().split("T")[0]}.md`;
+    a.download = `deskflow-briefing-${dateStamp}.md`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function downloadPDF() {
+    const doc = new jsPDF({ unit: "pt", format: "letter" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 48;
+    const maxW = pageW - margin * 2;
+    let y = margin;
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageH - margin) {
+        doc.addPage();
+        y = margin;
+      }
+    };
+
+    const writeWrapped = (text: string, size: number, style: "normal" | "bold" | "italic", color: [number, number, number] = [30, 30, 50], lineGap = 4) => {
+      doc.setFont("helvetica", style);
+      doc.setFontSize(size);
+      doc.setTextColor(...color);
+      const lines = doc.splitTextToSize(text, maxW);
+      for (const line of lines) {
+        ensureSpace(size + lineGap);
+        doc.text(line, margin, y);
+        y += size + lineGap;
+      }
+    };
+
+    // Title
+    writeWrapped("Deskflow Competitive Intelligence", 22, "bold", [25, 25, 70]);
+    y += 4;
+    writeWrapped(`${date}  ·  ${briefing.totalMentions} mentions  ·  ${briefing.sources.join(" + ")}`, 9, "normal", [110, 110, 130]);
+    y += 14;
+
+    // Executive Summary
+    writeWrapped("Executive Summary", 14, "bold", [25, 25, 70]);
+    y += 2;
+    writeWrapped(briefing.executiveSummary, 11, "normal");
+    y += 10;
+
+    // Competitors
+    for (const c of briefing.competitors) {
+      ensureSpace(60);
+      writeWrapped(c.name, 16, "bold", [25, 25, 70]);
+      writeWrapped(`Sentiment: ${c.sentiment.toUpperCase()}  ·  ${c.mentionCount} mentions`, 9, "italic", [110, 110, 130]);
+      y += 4;
+      writeWrapped(c.sentimentSummary, 10, "normal");
+      y += 6;
+      writeWrapped("Recurring themes:", 10, "bold");
+      for (const t of c.themes) writeWrapped(`• ${t}`, 10, "normal");
+      if (c.notableQuotes.length > 0) {
+        y += 4;
+        writeWrapped("Notable quotes:", 10, "bold");
+        for (const q of c.notableQuotes) {
+          writeWrapped(`"${q.text}"`, 10, "italic", [60, 60, 90]);
+          writeWrapped(`— ${q.source}`, 9, "normal", [110, 110, 130]);
+        }
+      }
+      y += 12;
+    }
+
+    // Opportunities
+    ensureSpace(40);
+    writeWrapped("Positioning Opportunities", 14, "bold", [25, 25, 70]);
+    y += 2;
+    briefing.positioningOpportunities.forEach((o, i) => writeWrapped(`${i + 1}. ${o}`, 11, "normal"));
+    y += 10;
+
+    // Threats
+    ensureSpace(40);
+    writeWrapped("Threats & Watch-outs", 14, "bold", [25, 25, 70]);
+    y += 2;
+    for (const t of briefing.threats) writeWrapped(`• ${t}`, 11, "normal");
+
+    doc.save(`deskflow-briefing-${dateStamp}.pdf`);
   }
 
   return (
@@ -41,9 +119,14 @@ export function BriefingDisplay({ briefing }: { briefing: Briefing }) {
               {date} · {briefing.totalMentions} mentions · {briefing.sources.join(" + ")}
             </p>
           </div>
-          <Button onClick={downloadMarkdown} variant="outline" className="gap-2">
-            <Download className="w-4 h-4" /> Markdown
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            <Button onClick={downloadMarkdown} variant="outline" className="gap-2">
+              <FileText className="w-4 h-4" /> Markdown
+            </Button>
+            <Button onClick={downloadPDF} className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground">
+              <FileDown className="w-4 h-4" /> PDF
+            </Button>
+          </div>
         </div>
         <p className="mt-6 text-lg leading-relaxed text-foreground/90">{briefing.executiveSummary}</p>
       </Card>
